@@ -8,10 +8,11 @@ import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
 from sklearn.cluster import KMeans
 
+elbow_cutoff = 0.85
+
 class mPCA:
 	"""
 	This class creates an object that stores all of the quantities that need to be clustered by PCA.
-	example: python PCA.py PDB_list.txt
 
 	"""
 
@@ -44,59 +45,90 @@ class mPCA:
 			self.compute_EED(coors)
 			self.compute_Asphericity(coors)
 			self.compute_SASA(PDB)
-		norm_EED = self.EED/np.linalg.norm(np.array(self.EED))
-		norm_Rg = self.Rg/np.linalg.norm(np.array(self.Rg))
-		norm_SASA = self.SASA/np.linalg.norm(np.array(self.SASA))
-		norm_Asphericity = self.Asphericity/np.linalg.norm(np.array(self.Asphericity))
+		norm_EED = self.EED/np.linalg.norm(np.array(self.EED)) ;   			 norm_EED -= sum(norm_EED)/len(norm_EED)
+		norm_Rg = self.Rg/np.linalg.norm(np.array(self.Rg)) ;      			 norm_Rg -= sum(norm_Rg)/len(norm_Rg)
+		norm_SASA = self.SASA/np.linalg.norm(np.array(self.SASA)) ;			 norm_SASA -= sum(norm_SASA)/len(norm_SASA)
+		norm_Asphericity = self.Asphericity/np.linalg.norm(np.array(self.Asphericity)) ; norm_Asphericity -= sum(norm_Asphericity)/len(norm_Asphericity)
 		A = np.array([norm_EED, norm_Rg, norm_SASA, norm_Asphericity]).T
-		#M_PCA = self.compute_PCA(A)
+		PC_labels = ['End-to-End Distance', 'Radius of Gyration', 'SASA', 'Asphericity']
 
 		pca = PCA(4)
 		pca.fit(A)
 		B = pca.transform(A)
+
+		#---My primitive implementation of PCA
+		#M_PCA = self.compute_PCA(A)
 		#print "mine:\n",  np.real(M_PCA).T
 		#print "sklearn\n", B
 
-		print "explained variance:", pca.explained_variance_
-		print pca.explained_variance_ratio_.cumsum()
+		print "PCA Variance:", pca.explained_variance_ratio_.cumsum()
+		i = 1
+		for pc in pca.explained_variance_ratio_.cumsum():
+			if float(pc) > elbow_cutoff:
+				break
+			i+=1
+		print "By the Elbow Rule, we will use", i, "pc's"
 		comps = pca.components_
-		print "       EED              Rg              SASA              Asph"
-		print "PC-1 ", comps[0][0], comps[0][1], comps[0][2], comps[0][3]
-		print "PC-2 ", comps[1][0], comps[1][1], comps[1][2], comps[1][3]
-		print "PC-3 ", comps[2][0], comps[2][1], comps[2][2], comps[2][3]
-		print "PC-4 ", comps[3][0], comps[3][1], comps[3][2], comps[3][3]
 
-		#print "here are the relevant columns, I guess, with the corresponding names"
-		#self.reduced = np.array([self.name, B[:,0], B[:,1]]).T
-		#print self.reduced
+		#---More print options
+		#print "explained variance:", pca.explained_variance_
+		#print "       EED              Rg              SASA              Asph"
+		#print "PC-1 ", comps[0][0], comps[0][1], comps[0][2], comps[0][3]
+		#print "PC-2 ", comps[1][0], comps[1][1], comps[1][2], comps[1][3]
+		#print "PC-3 ", comps[2][0], comps[2][1], comps[2][2], comps[2][3]
+		#print "PC-4 ", comps[3][0], comps[3][1], comps[3][2], comps[3][3]
 
-		#Nc = range(1, 20)
+		comp1 = comps[0]
+		ind_list = []
+		for c in range(i):
+			ind = np.where(comp1 == max(comp1))[0][0]
+			ind_list.append(ind)
+			comp1 = np.delete(comp1,[ind])
 
-		#kmeans = [KMeans(n_clusters=i) for i in Nc]
-		#score = [kmeans[i].fit(B).score(B) for i in range(len(kmeans))]
+		print "Important Components:", 
+		for label in range(len(ind_list)):
+			print PC_labels[ind_list[label]], ",",
+		print
+
+		Nc = range(1, 20)
+		kmeans = [KMeans(n_clusters=i) for i in Nc]
+		score = [kmeans[i].fit(B).score(B) for i in range(len(kmeans))]
+
+		min_s = min(score)
+		max_s = max(score)
+		norm_score = [(s-min_s)/(max_s-min_s) for s in score]
+		j = 1
+		for s in norm_score:
+			if s > elbow_cutoff:
+				break
+			j+=1
+
+		print "By the Elbow Rule, we will use", j, "Clusters for K-Means"
+
+		#---Plot Elbow Curve
 		#plt.plot(Nc,score)
 		#plt.xlabel('Number of Clusters')
 		#plt.ylabel('Score')
 		#plt.title('Elbow Curve')
-		#plt.savefig('test.png')
+		#plt.savefig('kmeans-elbow_curve.png')
 
-		# 8 clusters looks like it contains about 80%
-		kmeans=KMeans(n_clusters=8)
+		#---Use optimum number of clusters for k-means
+		kmeans=KMeans(n_clusters=j)
 		kmeansoutput=kmeans.fit(B[:,0:3])
-		plt.figure('3 Cluster K-Means')
+		plt.figure('Top 2 PCAs colored by K-Means Clustering')
 
-		# PCA space
-		plt.scatter(B[:,0], B[:,3], c=kmeansoutput.labels_)
+		#---PCA Space
+		plt.scatter(B[:,ind_list[0]], B[:,ind_list[1]], c=kmeansoutput.labels_)
 		plt.xlabel('PC-1')
 		plt.ylabel('PC-2')
 
-		# Real space
+		#---Real Space
 		#plt.scatter(self.EED, self.Asphericity, c=kmeansoutput.labels_)
 		#plt.xlabel('End-to-End Distance')
 		#plt.ylabel('Aspherality')
-		plt.title('8 Cluster K-Means')
-		#plt.show()
-		plt.savefig('test.png')
+
+		plt.title('Top 2 PCAs colored by K-Means Clustering')
+		plt.savefig('PCA_kmeans.png')
 
 	        return None
 
